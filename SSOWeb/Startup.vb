@@ -1,5 +1,8 @@
 ﻿
+Imports System.Security.Claims
+Imports System.Security.Principal
 Imports System.Threading.Tasks
+Imports Microsoft.AspNet.Identity
 Imports Microsoft.IdentityModel.Protocols.OpenIdConnect
 Imports Microsoft.IdentityModel.Tokens
 Imports Microsoft.Owin
@@ -18,9 +21,9 @@ Public Class Startup
     Public Sub Configuration(app As IAppBuilder)
 
         Dim authority = String.Format(AuthorityFormatString, tenant)
-        app.SetDefaultSignInAsAuthenticationType(CookieAuthenticationDefaults.AuthenticationType)
+        'app.SetDefaultSignInAsAuthenticationType(CookieAuthenticationDefaults.AuthenticationType)
+        app.UseExternalSignInCookie(DefaultAuthenticationTypes.ExternalCookie)
 
-        app.UseCookieAuthentication(New CookieAuthenticationOptions())
         app.UseOpenIdConnectAuthentication(
             New OpenIdConnectAuthenticationOptions With
             {
@@ -36,11 +39,55 @@ Public Class Startup
                 },
                 .Notifications = New OpenIdConnectAuthenticationNotifications With
                 {
-                    .AuthenticationFailed = AddressOf OnAuthenticationFailed 'OpenIdConnectAuthenticationNotifications configures OWIN to send notification of failed authentications to OnAuthenticationFailed method
+                .AuthorizationCodeReceived = Function(context)
+                                                 Return Task.FromResult(0)
+                                             End Function,
+                .SecurityTokenValidated = Function(context)
+                                              Return Task.FromResult(0)
+                                          End Function,
+                                .TokenResponseReceived = Function(context)
+                                                             Return Task.FromResult(0)
+                                                         End Function,
+                    .RedirectToIdentityProvider =
+                        Function(context)
+                            If context.Request.Path.Value = "/Account/ExternalLogOn" OrElse (context.Request.Path.Value = "/Account/LogOff" AndAlso IsExternalUser(context.Request.User.Identity)) Then
+                                '// This ensures that the address used for sign in And sign out Is picked up dynamically from the request
+                                '// this allows you to deploy your app (to Azure Web Sites, for example)without having to change settings
+                                '// Remember that the base URL of the address used here must be provisioned in Azure AD beforehand.
+                                Dim appBaseUrl = context.Request.Scheme + "://" + context.Request.Host.Value + context.Request.PathBase.Value
+                                context.ProtocolMessage.RedirectUri = appBaseUrl + "/Account/ExtAuth"
+                                context.ProtocolMessage.PostLogoutRedirectUri = appBaseUrl + "/Account/ExtAuthSignOut"
+                            Else
+                                '//This Is to avoid being redirected to the microsoft login page when deep linking And Not logged in 
+                                context.State = Microsoft.Owin.Security.Notifications.NotificationResultState.Skipped
+                                context.HandleResponse()
+                            End If
+                            Return Task.FromResult(0)
+                        End Function,
+        .AuthenticationFailed = AddressOf OnAuthenticationFailed 'OpenIdConnectAuthenticationNotifications configures OWIN to send notification of failed authentications to OnAuthenticationFailed method
                 }
             }
         )
+
+        '.SecurityTokenReceived = Function(context)
+        '                             Return Task.FromResult(0)
+        '                         End Function,
+        app.UseCookieAuthentication(New CookieAuthenticationOptions() With {
+    .AuthenticationType = DefaultAuthenticationTypes.ApplicationCookie,
+    .LoginPath = New PathString("/Account/LogOn")
+})
+
     End Sub
+    Private Shared Function IsExternalUser(identity As IIdentity) As Boolean
+        Dim iden = TryCast(identity, ClaimsIdentity)
+        If iden IsNot Nothing AndAlso iden.IsAuthenticated Then
+            Dim value = iden.FindFirstValue(ClaimTypes.Sid)
+            If value IsNot Nothing AndAlso value = "Office365" Then
+                Return True
+            End If
+        End If
+        Return False
+    End Function
     Private Function OnAuthenticationFailed(context As AuthenticationFailedNotification(Of OpenIdConnectMessage, OpenIdConnectAuthenticationOptions)) As Task
         context.HandleResponse()
         context.Response.Redirect("/?errormessage=" & context.Exception.Message)

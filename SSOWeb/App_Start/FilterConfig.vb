@@ -15,13 +15,21 @@ Public Module FilterConfig
             Dim iden = filterContext.RequestContext.HttpContext.User.Identity
 
             If filterContext.RequestContext.HttpContext.User.Identity.IsAuthenticated Then
-                Dim signInAs = iden.Name
-                If String.IsNullOrWhiteSpace(signInAs) AndAlso TypeOf iden Is System.Security.Claims.ClaimsIdentity Then
-                    Dim ci = CType(iden, System.Security.Claims.ClaimsIdentity)
-                    signInAs = ci.Claims.FirstOrDefault(Function(o) o.Type = "preferred_username")?.Value
+                Dim principal As CustomPrincipal = TryCast(filterContext.HttpContext.Session("ActivePrincipal"), CustomPrincipal)
+                If principal Is Nothing Then
+
+                    Dim signInAs = iden.Name
+                    If String.IsNullOrWhiteSpace(signInAs) AndAlso TypeOf iden Is System.Security.Claims.ClaimsIdentity Then
+                        Dim ci = CType(iden, System.Security.Claims.ClaimsIdentity)
+                        signInAs = ci.Claims.FirstOrDefault(Function(o) o.Type = "preferred_username")?.Value
+                    End If
+
+
+                    'Call real principal "WebAuthenticatedLogin" 
+                    principal = New CustomPrincipal(New CustomIdentity(signInAs))
+                    filterContext.HttpContext.Session("ActivePrincipal") = principal
                 End If
-                'perform real principal "WebAuthenticatedLogin" 
-                filterContext.RequestContext.HttpContext.User = New CustomPrincipal(New CustomIdentity(signInAs))
+                filterContext.RequestContext.HttpContext.User = principal
             End If
 
         End Sub

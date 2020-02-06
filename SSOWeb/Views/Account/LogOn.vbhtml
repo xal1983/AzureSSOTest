@@ -31,7 +31,7 @@ End Code
 
     </div>
 End Using
-@Using Html.BeginForm("ExternalLogOn", "Account")
+@Using Html.BeginForm("ExternalLogOn", "Account", New With {.ReturnUrl = ViewData("ReturnUrl")}, FormMethod.Post)
     @<div>
     <input type="submit" value="Sign in with microsoft account"/>
     </div>
